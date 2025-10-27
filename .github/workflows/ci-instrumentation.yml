@@ -8,6 +8,9 @@ on:
   pull_request:
     branches:
       - main
+    paths:
+      - 'instrumentation/**'
+      - '.github/workflows/ci-instrumentation.yml'
   schedule:
     - cron: "0 0 * * *"
 
@@ -19,46 +22,104 @@ concurrency:
   cancel-in-progress: true  # Cancel any previous runs of this workflow
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      
+      - name: Get changed instrumentation files
+        id: changed-files
+        run: |
+          if [[ "${{ github.event_name }}" == "schedule" ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run_all=true" >> $GITHUB_OUTPUT
+          else
+            # Get changed files
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+            else
+              # this is for push events
+              CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+            fi
+            
+            echo "Changed files:"
+            echo "$CHANGED_FILES"
+            
+            # Extract unique instrumentation gem names from changed files
+            CHANGED_GEMS=$(echo "$CHANGED_FILES" | grep '^instrumentation/' | sed 's|^instrumentation/||' | cut -d'/' -f1 | sed 's/opentelemetry-instrumentation-//' | sort -u)
+            
+            if [ -z "$CHANGED_GEMS" ]; then
+              echo "run_all=false" >> $GITHUB_OUTPUT
+              echo "changed_gems=" >> $GITHUB_OUTPUT
+            else
+              echo "run_all=false" >> $GITHUB_OUTPUT
+              echo "changed_gems<<EOF" >> $GITHUB_OUTPUT
+              echo "$CHANGED_GEMS" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+            fi
+          fi
+      
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          ALL_GEMS='["action_mailer", \
+                     "action_pack", \
+                     "action_view", \
+                     "active_job", \
+                     "active_model_serializers", \
+                     "active_record", \
+                     "active_storage", \
+                     "active_support", \
+                     "all", \
+                     "aws_sdk", \
+                     "aws_lambda", \
+                     "base", \
+                     "concurrent_ruby", \
+                     "delayed_job", \
+                     "ethon", \
+                     "excon", \
+                     "faraday", \
+                     "grape", \
+                     "graphql", \
+                     "grpc", \
+                     "gruf", \
+                     "http", \
+                     "http_client", \
+                     "httpx", \
+                     "koala", \
+                     "lmdb", \
+                     "logger", \
+                     "net_http", \
+                     "rack", \
+                     "rails", \
+                     "restclient", \
+                     "rspec", \
+                     "sinatra"]'
+          
+          if [[ "${{ steps.changed-files.outputs.run_all }}" == "true" ]]; then
+            echo "Running all tests (schedule/manual trigger)"
+            echo "matrix={\"gem\":$ALL_GEMS,\"os\":[\"ubuntu-latest\"]}" >> $GITHUB_OUTPUT
+          elif [[ -z "${{ steps.changed-files.outputs.changed_gems }}" ]]; then
+            echo "No instrumentation changes detected, skipping tests"
+            echo "matrix={\"gem\":[],\"os\":[\"ubuntu-latest\"]}" >> $GITHUB_OUTPUT
+          elif echo "${{ steps.changed-files.outputs.changed_gems }}" | grep -q "^base$"; then
+            echo "Base gem changed, running all tests"
+            echo "matrix={\"gem\":$ALL_GEMS,\"os\":[\"ubuntu-latest\"]}" >> $GITHUB_OUTPUT
+          else
+            CHANGED_GEMS_JSON=$(echo "${{ steps.changed-files.outputs.changed_gems }}" | jq -R -s -c 'split("\n")[:-1]')
+            echo "Changed gems detected: $CHANGED_GEMS_JSON"
+            echo "matrix={\"gem\":$CHANGED_GEMS_JSON,\"os\":[\"ubuntu-latest\"]}" >> $GITHUB_OUTPUT
+          fi
+
   instrumentation:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.matrix != '' && fromJson(needs.detect-changes.outputs.matrix).gem[0] != null }}
     strategy:
       fail-fast: false
-      matrix:
-        gem:
-          - action_mailer
-          - action_pack
-          - action_view
-          - active_job
-          - active_model_serializers
-          - active_record
-          - active_storage
-          - active_support
-          - all
-          - aws_sdk
-          - aws_lambda
-          - base
-          - concurrent_ruby
-          - delayed_job
-          - ethon
-          - excon
-          - faraday
-          - grape
-          - graphql
-          - grpc
-          - gruf
-          - http
-          - http_client
-          - httpx
-          - koala
-          - lmdb
-          - logger
-          - net_http
-          - rack
-          - rails
-          - restclient
-          - rspec
-          - sinatra
-        os:
-          - ubuntu-latest
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
 
     name: ${{ matrix.gem }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

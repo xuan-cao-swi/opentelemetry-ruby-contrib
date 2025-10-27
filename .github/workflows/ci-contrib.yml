@@ -8,6 +8,13 @@ on:
   pull_request:
     branches:
       - main
+    paths:
+      - 'helpers/**'
+      - 'propagator/**'
+      - 'resources/**'
+      - 'processor/**'
+      - 'sampler/**'
+      - '.github/workflows/ci-contrib.yml'
   schedule:
     - cron: "0 0 * * *"
 
@@ -19,7 +26,34 @@ concurrency:
   cancel-in-progress: true  # Cancel any previous runs of this workflow
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      helpers: ${{ steps.filter.outputs.helpers }}
+      propagators: ${{ steps.filter.outputs.propagators }}
+      resource-detectors: ${{ steps.filter.outputs.resource-detectors }}
+      processors: ${{ steps.filter.outputs.processors }}
+      samplers: ${{ steps.filter.outputs.samplers }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            helpers:
+              - 'helpers/**'
+            propagators:
+              - 'propagator/**'
+            resource-detectors:
+              - 'resources/**'
+            processors:
+              - 'processor/**'
+            samplers:
+              - 'sampler/**'
+
   helpers:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.helpers == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       matrix:
@@ -61,6 +95,8 @@ jobs:
           ruby: "jruby-10.0.2.0"
 
   propagators:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.propagators == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       matrix:
@@ -101,6 +137,8 @@ jobs:
           ruby: "jruby-10.0.2.0"
 
   resource-detectors:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.resource-detectors == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       matrix:
@@ -142,6 +180,8 @@ jobs:
           ruby: "jruby-10.0.2.0"
 
   processors:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.processors == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       matrix:
@@ -173,13 +213,15 @@ jobs:
           coverage: true
           build: true
       - name: "Test JRuby"
-        if: "${{ matrix.os == 'ubuntu-latest' && steps.jruby_skip.outputs.skip == 'false' }}"
+        if: "${{ matrix.os == 'ubuntu-latest' }}"
         uses: ./.github/actions/test_gem
         with:
           gem: "opentelemetry-processor-${{ matrix.gem }}"
           ruby: "jruby-10.0.2.0"
 
   samplers:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.samplers == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       matrix:
