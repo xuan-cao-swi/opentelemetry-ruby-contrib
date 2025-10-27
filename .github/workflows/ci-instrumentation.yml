@@ -41,16 +41,19 @@ jobs:
             if [[ "${{ github.event_name }}" == "pull_request" ]]; then
               CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
             else
-              # this is for push events
+              # this makes only the gem with changed files get tested after merge to main
               CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
             fi
-            
+
             echo "Changed files:"
             echo "$CHANGED_FILES"
             
             # Extract unique instrumentation gem names from changed files
             CHANGED_GEMS=$(echo "$CHANGED_FILES" | grep '^instrumentation/' | sed 's|^instrumentation/||' | cut -d'/' -f1 | sed 's/opentelemetry-instrumentation-//' | sort -u)
-            
+
+            echo "Changed gems: "
+            echo "$CHANGED_GEMS"
+
             if [ -z "$CHANGED_GEMS" ]; then
               echo "run_all=false" >> $GITHUB_OUTPUT
               echo "changed_gems=" >> $GITHUB_OUTPUT
